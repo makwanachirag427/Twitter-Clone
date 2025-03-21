@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "react-hot-toast";
 
 import Posts from "../../components/common/Posts";
 import EditProfileModal from "./EditProfileModal";
@@ -7,14 +9,16 @@ import EditProfileModal from "./EditProfileModal";
 import { POSTS } from "../../utils/db/dummy";
 
 import { FaArrowLeft } from "react-icons/fa6";
-import { IoCalendarOutline } from "react-icons/io5";
+import { IoCalendarOutline, IoSparkles } from "react-icons/io5";
 import { FaLink } from "react-icons/fa";
 import { MdEdit } from "react-icons/md";
 import ProfileHeaderSkeleton from "../../components/skeletons/ProfileHeaderSkeleton ";
-import { useQuery } from "@tanstack/react-query";
 import { formatMemberSinceDate } from "../../utils/date";
+import useFollow from "../../hooks/useFollow";
 
 const ProfilePage = () => {
+  const queryClient = useQueryClient();
+
   const [coverImg, setCoverImg] = useState(null);
   const [profileImg, setProfileImg] = useState(null);
   const [feedType, setFeedType] = useState("posts");
@@ -24,31 +28,70 @@ const ProfilePage = () => {
 
   const { username } = useParams();
 
-  const isMyProfile = true;
-  
+  const { follow, isPending } = useFollow();
+  const authUser = queryClient.getQueryData(["authUser"]);
+
   const {
-	  data: user,
-	  isLoading,
-	  refetch,
-	  isRefetching,
-	} = useQuery({
+    data: user,
+    isLoading,
+    refetch,
+    isRefetching,
+  } = useQuery({
     queryKey: ["userProfile"],
     queryFn: async () => {
-		try {
-			const res = await fetch(`/api/users/profile/${username}`);
+      try {
+        const res = await fetch(`/api/users/profile/${username}`);
         const data = await res.json();
-		
+
         if (!res.ok) {
-			throw new Error(data.error || "Something went wrong");
+          throw new Error(data.error || "Something went wrong");
         }
         return data;
-	} catch (error) {
-		throw new Error(error);
-	}
-},
-});
+      } catch (error) {
+        throw new Error(error);
+      }
+    },
+  });
 
-const memberSinceDate = formatMemberSinceDate(user?.createdAt);
+  const { mutate: updateProfile, isPending: isUpdatingProfile } = useMutation({
+    mutationFn: async () => {
+      try {
+        const res = await fetch(`/api/users/update`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            coverImg,
+            profileImg,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Something went wrong");
+        }
+        return data;
+      } catch (error) {
+        throw new Error(error);
+      }
+    },
+    onSuccess: () => {
+      toast.success("Profile updated successfully");
+      // invalidate query
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["authUser"] }),
+        queryClient.invalidateQueries({ queryKey: ["userProfile"] }),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const isMyProfile = authUser._id === user?._id;
+
+  const memberSinceDate = formatMemberSinceDate(user?.createdAt);
+  const amIFollowing = authUser?.following.includes(user?._id);
 
   const handleImgChange = (e, state) => {
     const file = e.target.files[0];
@@ -64,7 +107,7 @@ const memberSinceDate = formatMemberSinceDate(user?.createdAt);
 
   useEffect(() => {
     refetch();
-  }, [username, refetch,username]);
+  }, [username, refetch]);
 
   return (
     <>
@@ -138,21 +181,23 @@ const memberSinceDate = formatMemberSinceDate(user?.createdAt);
                 </div>
               </div>
               <div className="flex justify-end px-4 mt-5">
-                {isMyProfile && <EditProfileModal />}
+                {isMyProfile && <EditProfileModal authUser={authUser}/>}
                 {!isMyProfile && (
                   <button
                     className="btn btn-outline rounded-full btn-sm"
-                    onClick={() => alert("Followed successfully")}
+                    onClick={() => follow(user?._id)}
                   >
-                    Follow
+                    {isPending && "Loading..."}
+                    {!isPending && amIFollowing && "Unfollow"}
+                    {!isPending && !amIFollowing && "Follow"}
                   </button>
                 )}
                 {(coverImg || profileImg) && (
                   <button
                     className="btn btn-primary rounded-full btn-sm text-white px-4 ml-2"
-                    onClick={() => alert("Profile updated successfully")}
+                    onClick={() => updateProfile()}
                   >
-                    Update
+                    {isUpdatingProfile ? "Updating..." : "Update"}
                   </button>
                 )}
               </div>
@@ -172,12 +217,12 @@ const memberSinceDate = formatMemberSinceDate(user?.createdAt);
                       <>
                         <FaLink className="w-3 h-3 text-slate-500" />
                         <a
-                          href="https://youtube.com/@asaprogrammer_"
+                          href={user?.link}
                           target="_blank"
                           rel="noreferrer"
                           className="text-sm text-blue-500 hover:underline"
                         >
-                          youtube.com/@asaprogrammer_
+                          {user?.link}
                         </a>
                       </>
                     </div>
@@ -227,7 +272,7 @@ const memberSinceDate = formatMemberSinceDate(user?.createdAt);
             </>
           )}
 
-          <Posts feedType={feedType} username={username} userId = {user?._id}/>
+          <Posts feedType={feedType} username={username} userId={user?._id} />
         </div>
       </div>
     </>
