@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "react-hot-toast";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
 
 import Posts from "../../components/common/Posts";
 import EditProfileModal from "./EditProfileModal";
@@ -15,6 +15,7 @@ import { MdEdit } from "react-icons/md";
 import ProfileHeaderSkeleton from "../../components/skeletons/ProfileHeaderSkeleton ";
 import { formatMemberSinceDate } from "../../utils/date";
 import useFollow from "../../hooks/useFollow";
+import useUpdateUserProfile from "../../hooks/useUpdateUserProfile";
 
 const ProfilePage = () => {
   const queryClient = useQueryClient();
@@ -53,40 +54,7 @@ const ProfilePage = () => {
     },
   });
 
-  const { mutate: updateProfile, isPending: isUpdatingProfile } = useMutation({
-    mutationFn: async () => {
-      try {
-        const res = await fetch(`/api/users/update`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            coverImg,
-            profileImg,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "Something went wrong");
-        }
-        return data;
-      } catch (error) {
-        throw new Error(error);
-      }
-    },
-    onSuccess: () => {
-      toast.success("Profile updated successfully");
-      // invalidate query
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["authUser"] }),
-        queryClient.invalidateQueries({ queryKey: ["userProfile"] }),
-      ]);
-    },
-    onError: (error) => {
-      toast.error(error.message);
-    },
-  });
+  const { updateProfile, isUpdatingProfile } = useUpdateUserProfile();
 
   const isMyProfile = authUser._id === user?._id;
 
@@ -181,7 +149,7 @@ const ProfilePage = () => {
                 </div>
               </div>
               <div className="flex justify-end px-4 mt-5">
-                {isMyProfile && <EditProfileModal authUser={authUser}/>}
+                {isMyProfile && <EditProfileModal authUser={authUser} />}
                 {!isMyProfile && (
                   <button
                     className="btn btn-outline rounded-full btn-sm"
@@ -195,7 +163,11 @@ const ProfilePage = () => {
                 {(coverImg || profileImg) && (
                   <button
                     className="btn btn-primary rounded-full btn-sm text-white px-4 ml-2"
-                    onClick={() => updateProfile()}
+                    onClick={async () => {
+                      await updateProfile({coverImg,profileImg});
+                      setProfileImg(null);
+                      setCoverImg(null);
+                    }}
                   >
                     {isUpdatingProfile ? "Updating..." : "Update"}
                   </button>
